@@ -1,0 +1,20 @@
+# Build artifacts
+target/
+*.img
+*.tar
+
+# Temporary files
+*.tmp
+*.log
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Config files that might contain secrets
+*.toml
+!example*.toml
