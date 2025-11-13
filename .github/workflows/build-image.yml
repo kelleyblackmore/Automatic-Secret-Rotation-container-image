@@ -70,6 +70,7 @@ jobs:
           fi
 
       - name: Build and push container image
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: .
