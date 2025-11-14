@@ -1,7 +1,7 @@
 # Automatic Secret Rotation Container Image
 # This container image provides the ASR CLI tool for automatic secret rotation
 
-FROM alpine:3.19
+FROM alpine:3.20
 
 # Install required dependencies
 RUN apk add --no-cache \
