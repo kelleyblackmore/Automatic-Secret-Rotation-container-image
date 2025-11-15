@@ -1,96 +1,55 @@
 # Automatic Secret Rotation Container Image
-# This container image provides the ASR CLI tool for automatic secret rotation
+# This container image uses the upstream install script to install the ASR CLI
 
 FROM alpine:3.20
 
-# Install required dependencies
+# Install runtime dependencies. We include git so that the installer can
+# fall back to building from source if a pre-built binary is unavailable.
 RUN apk add --no-cache \
     ca-certificates \
     curl \
-    bash
+    bash \
+    git
 
-# Set version - this will be overridden by build args
+# The ASR version to install. "latest" means install the most recent
+# release. You can override this at build time with --build-arg ASR_VERSION=<tag>.
 ARG ASR_VERSION=latest
 
-# Download and install the ASR binary
+# Download and run the install script from the main repository. The script will
+# download the appropriate binary for the current architecture or build from
+# source if no binary exists. The binary is installed into /usr/local/bin.
 RUN set -eux; \
-    ARCH="$(uname -m)"; \
-    case "$ARCH" in \
-        x86_64) \
-            BINARY_NAME="asr-linux-x86_64" \
-            ;; \
-        aarch64|arm64) \
-            BINARY_NAME="asr-linux-arm64" \
-            ;; \
-        *) \
-            echo "Unsupported architecture: $ARCH" && exit 1 \
-            ;; \
+    # Fetch the installer from the main branch of Automatic-Secret-Rotation
+    curl -fsSL https://raw.githubusercontent.com/kelleyblackmore/Automatic-Secret-Rotation/main/install.sh -o /tmp/install.sh; \
+    chmod +x /tmp/install.sh; \
+    # If a specific version is requested, export it for the installer. Without this
+    # variable the installer will default to the latest release. A leading 'v' is
+    # optional (e.g. ASR_VERSION=v0.3.0 or ASR_VERSION=0.3.0).
+    if [ "$ASR_VERSION" != "latest" ]; then \
+        export ASR_VERSION="$ASR_VERSION"; \
+    fi; \
+    # On unsupported architectures (e.g. arm64), force a source build by
+    # exporting ASR_BUILD_FROM_SOURCE. The install script will then clone the
+    # repository and build with cargo.
+    case "$(uname -m)" in \
+        aarch64|arm64) export ASR_BUILD_FROM_SOURCE=1 ;; \
     esac; \
-    \
-    # Get latest release tag or use specified version
-    if [ "$ASR_VERSION" = "latest" ]; then \
-        RELEASE_TAG=$(curl -s "https://api.github.com/repos/kelleyblackmore/Automatic-Secret-Rotation/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo ""); \
-    else \
-        RELEASE_TAG="$ASR_VERSION"; \
-    fi; \
-    \
-    if [ -z "$RELEASE_TAG" ]; then \
-        echo "No releases found, building from source..."; \
-        BUILD_FROM_SOURCE=1; \
-    else \
-        echo "Found release: $RELEASE_TAG"; \
-        DOWNLOAD_URL="https://github.com/kelleyblackmore/Automatic-Secret-Rotation/releases/download/${RELEASE_TAG}/${BINARY_NAME}"; \
-        echo "Downloading ${BINARY_NAME} from ${DOWNLOAD_URL}..."; \
-        if curl -fsSL -o /tmp/asr "$DOWNLOAD_URL"; then \
-            chmod +x /tmp/asr; \
-            mv /tmp/asr /usr/local/bin/asr; \
-            echo "Downloaded pre-built binary successfully!"; \
-            BUILD_FROM_SOURCE=0; \
-        else \
-            echo "Pre-built binary not available, building from source..."; \
-            BUILD_FROM_SOURCE=1; \
-        fi; \
-    fi; \
-    \
-    # Build from source if binary download failed
-    if [ "$BUILD_FROM_SOURCE" = "1" ]; then \
-        echo "Installing build dependencies..."; \
-        apk add --no-cache --virtual .build-deps \
-            rust \
-            cargo \
-            git \
-            musl-dev; \
-        \
-        cd /tmp; \
-        if [ "$ASR_VERSION" = "latest" ]; then \
-            git clone --depth 1 https://github.com/kelleyblackmore/Automatic-Secret-Rotation.git; \
-        else \
-            git clone --depth 1 --branch "${ASR_VERSION}" https://github.com/kelleyblackmore/Automatic-Secret-Rotation.git; \
-        fi; \
-        \
-        cd Automatic-Secret-Rotation; \
-        cargo build --release --locked; \
-        \
-        # Install the binary
-        install -m 755 target/release/asr /usr/local/bin/asr; \
-        \
-        # Cleanup
-        cd /; \
-        rm -rf /tmp/Automatic-Secret-Rotation; \
-        apk del .build-deps; \
-        rm -rf /root/.cargo /root/.rustup; \
-        echo "Built and installed from source!"; \
-    fi
+    # Run the installer. The ASR binary will be placed in ~/.local/bin by default.
+    ASR_BINARY_NAME=asr /tmp/install.sh; \
+    # Move the binary into /usr/local/bin so it is on the PATH. We remove the
+    # ~/.local directory afterwards to avoid leaving residual state.
+    mv /root/.local/bin/asr /usr/local/bin/asr; \
+    rm -rf /root/.local; \
+    rm -f /tmp/install.sh
 
-# Verify installation
+# Verify that the CLI works.
 RUN asr --version
 
-# Set working directory
+# Set a working directory for users of the image
 WORKDIR /workspace
 
-# Set entrypoint to asr
+# Run the ASR CLI by default. A command like `docker run image init` will execute
+# `asr init` inside the container.
 ENTRYPOINT ["/usr/local/bin/asr"]
 
-# Default command shows help
 CMD ["--help"]
-
