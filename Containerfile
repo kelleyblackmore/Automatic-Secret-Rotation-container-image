@@ -9,7 +9,10 @@ RUN apk add --no-cache \
     ca-certificates \
     curl \
     bash \
-    git
+    git \
+    # Required for cargo to run when the installer falls back to building from source
+    libgcc \
+    libstdc++
 
 # The ASR version to install. "latest" means install the most recent
 # release. You can override this at build time with --build-arg ASR_VERSION=<tag>.
